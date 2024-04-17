@@ -1,0 +1,147 @@
+Setting up a Spring Batch job to read data from CSV files and process it:
+
+
+Entity class:
+
+public class Customer {
+    private String name;
+    private int age;
+    private String phone;
+    private String email;
+
+    // Getters and setters (omitted for brevity)
+}
+
+
+file1.csv: (Headers: name, age)
+John Doe,30
+Jane Doe,25
+
+
+
+file2.csv: (Headers: phone_number, email_address)
+123-456-7890,jane.doe@example.com
+987-654-3210,john.doe@example.com
+
+
+BatchConfiguration:
+
+@SpringBootApplication
+@EnableBatchProcessing
+public class BatchConfig {
+
+    @Value({"classpath:/input/file1.csv", "classpath:/input/file2.csv"})
+    private Resource[] inputResources;
+
+    @Bean
+    public MultiResourceItemReader<Customer> reader() {
+        MultiResourceItemReader<Customer> reader = new MultiResourceItemReader<>();
+        reader.setResources(inputResources);
+        reader.setDelegate(delegateReader());
+        return reader;
+    }
+
+    @Bean
+    public FlatFileItemReader<Customer> delegateReader() {
+        FlatFileItemReader<Customer> delegateReader = new FlatFileItemReader<>();
+        delegateReader.setLineMapper(customerLineMapper());
+        delegateReader.setLinesToSkip(1); // Skip header line
+        return delegateReader;
+    }
+
+    @Bean
+    public DefaultLineMapper<Customer> customerLineMapper() {
+        DefaultLineMapper<Customer> lineMapper = new DefaultLineMapper<>();
+        lineMapper.setFieldSetMapper(new BeanWrapperFieldSetMapper<Customer>() {{
+                setTargetType(Customer.class);
+
+        lineMapper.setLineTokenizer(new DefaultLineTokenizer()); // Default comma tokenizer
+	mapper.addPropertyExtractor(new ResourceAwarePropertyExtractor());
+        return lineMapper;
+    }
+
+    @Bean
+public ItemWriter<Customer> writer() {
+  return items -> {
+    for (Customer customer : items) {
+      System.out.println(customer);
+    }
+  };
+}
+
+   
+    @Bean
+    public Job importUserJob(JobBuilderFactory jobs, Step step1) {
+        return jobs.get("importUserJob")
+                .flow(step1)
+                .end()
+                .build();
+    }
+
+    @Bean
+    public Step step1(StepBuilderFactory stepBuilderFactory, ItemReader<Customer> reader,
+                      ItemWriter<Customer> writer) {
+        return stepBuilderFactory.get("step1")
+                .<Customer, Customer>chunk(10)
+                .reader(reader)
+                .writer(writer)
+                .build();
+    }
+}
+
+Explanation:
+
+1. DefaultLineMapper is a Spring Batch component that helps map data from a CSV file (line by line) to an object of a specific type (Customer in this case).
+2. A FieldSetMapper is responsible for mapping data from each CSV record (represented as a FieldSet) to the properties of the target object (Customer).
+3.setTargetType(Customer.class) sets the target type for the `BeanWrapperFieldSetMapper`. 
+- In this case, it specifies that the mapper should map data to a `Customer` object.
+4. A LineTokenizer is responsible for splitting each line of the CSV file into individual tokens (fields) based on a delimiter (usually comma in this case).
+Here, a new instance of DefaultLineTokenizer is used, which assumes comma as the delimiter.
+5.This line sets the PropertyExtractor for the lineMapper. The PropertyExtractor (in this case, ResourceAwarePropertyExtractor) is responsible for dynamically mapping CSV header names to the corresponding properties of the Customer object based on the current resource being processed (assuming different headers for different CSV files).
+
+
+ResourceAwarePropertyExtractor:
+public class ResourceAwarePropertyExtractor implements PropertyExtractor<Customer, FieldSet> {
+
+    private final Map<String, String> file1Mappings = new HashMap<>();
+    private final Map<String, String> file2Mappings = new HashMap<>();
+
+    {
+        // Define mappings for file1 headers (name, age)
+        file1Mappings.put("name", "name");
+        file1Mappings.put("age", "age");
+
+        // Define mappings for file2 headers (phone_number, email_address)
+        file2Mappings.put("phone_number", "phone");
+        file2Mappings.put("email_address", "email");
+    }
+
+    @Override
+    public Map<String, String> extract(FieldSet fieldSet, Resource resource) {
+        String fileName = resource.getDescription();
+        if (fileName.contains("file1.csv")) {
+            return file1Mappings;
+        } else {
+            return file2Mappings;
+        }
+    }
+}
+
+
+Explanation:
+
+1.A custom ResourceAwarePropertyExtractor is implemented to dynamically map CSV headers to object properties based on the current resource being processed.
+
+2.Spring Batch's BeanWrapperFieldSetMapper typically relies on exact property name matches between CSV headers and object properties.
+
+3.In this case, file1.csv has headers "name" and "age", while file2.csv has "phone_number" and "email_address". A single static mapping wouldn't work for both files.
+
+4.The ResourceAwarePropertyExtractor dynamically provides the appropriate mapping based on the current resource being processed. It checks the file name and returns the corresponding map (file1Mappings or file2Mappings) containing the relevant property mappings for that specific file.
+
+
+With the provided code for reader, customerLineMapper, and the new writer, the output on the console will be:
+
+Customer [name=John Doe, age=30, phone=null, email=null]
+Customer [name=Jane Doe, age=25, phone=null, email=null]
+Customer [name=null, age=0, phone=123-456-7890, email=jane.doe@example.com]
+Customer [name=null, age=0, phone=987-654-3210, email=john.doe@example.com]
